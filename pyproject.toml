@@ -1,0 +1,12 @@
+[project]
+name = "capacium-mcp"
+version = "0.1.0"
+description = "Capacium MCP Server — exposes Capacium tools, resources, and crawler management to AI agents via MCP"
+authors = [{name = "Capacium"}]
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.24",
+]
+
+[project.scripts]
+capacium-mcp = "capacium_mcp.server:main"
