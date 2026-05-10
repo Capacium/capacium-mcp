@@ -139,63 +139,53 @@ class ExchangeClient:
         if framework:
             params["framework"] = framework
 
+        # P0-005: use correct Exchange v2 endpoint (/v2/search, not /api/v2/capabilities)
         try:
-            resp = self._client.get(f"{self.base_url}/api/v2/capabilities", params=params)
+            resp = self._client.get(f"{self.base_url}/v2/search", params=params)
             resp.raise_for_status()
             data = resp.json()
         except Exception:
-            try:
-                resp = self._client.get(f"{self.base_url}/capabilities", params=params)
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception:
-                return []
+            return []
 
         if isinstance(data, dict):
-            return data.get("results", data.get("capabilities", []))
+            return data.get("listings", data.get("results", data.get("capabilities", [])))
         if isinstance(data, list):
             return data
         return []
 
     def popular(self, limit: int = 20) -> List[Dict[str, Any]]:
+        # P0-005: use correct Exchange v2 endpoint
         try:
-            resp = self._client.get(f"{self.base_url}/api/v2/capabilities", params={
+            resp = self._client.get(f"{self.base_url}/v2/search", params={
+                "query": "",
                 "sort": "installs",
                 "limit": str(limit),
             })
             resp.raise_for_status()
             data = resp.json()
         except Exception:
-            try:
-                resp = self._client.get(f"{self.base_url}/capabilities", params={
-                    "sort": "popular",
-                    "limit": str(limit),
-                })
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception:
-                return []
+            return []
 
         if isinstance(data, dict):
-            return data.get("results", data.get("capabilities", []))
+            return data.get("listings", data.get("results", data.get("capabilities", [])))
         if isinstance(data, list):
             return data
         return []
 
     def get_capability(self, owner: str, name: str) -> Optional[Dict[str, Any]]:
+        # P0-005: correct endpoint is /v2/capabilities/{owner}/{name}
         try:
-            resp = self._client.get(f"{self.base_url}/api/v2/capabilities/{owner}/{name}")
-            if resp.status_code == 404:
-                resp = self._client.get(f"{self.base_url}/capabilities/{owner}/{name}")
+            resp = self._client.get(f"{self.base_url}/v2/capabilities/{owner}/{name}")
             resp.raise_for_status()
             return resp.json()
         except Exception:
             return None
 
     def download(self, owner: str, name: str, version: str = "latest") -> Optional[bytes]:
+        # P0-005: correct download endpoint
         for path in (
-            f"{self.base_url}/api/v2/capabilities/{owner}/{name}/download",
-            f"{self.base_url}/capabilities/{owner}/{name}/download",
+            f"{self.base_url}/v2/capabilities/{owner}/{name}/download",
+            f"{self.base_url}/v2/listings/{owner}/{name}/download",
         ):
             try:
                 resp = self._client.get(path, params={"version": version})
