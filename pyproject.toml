@@ -1,6 +1,6 @@
 [project]
 name = "capacium-mcp"
-version = "0.1.1"
+version = "0.2.0"
 description = "Capacium MCP Server — exposes Capacium tools, resources, and crawler management to AI agents via MCP"
 authors = [{name = "Capacium"}]
 requires-python = ">=3.10"

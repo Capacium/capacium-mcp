@@ -9,9 +9,16 @@ Resources:
   detail://{owner}/{name} Get capability details
 
 Tools:
-  cap_install            Install a capability into framework directories
-  cap_verify             Verify fingerprint and trust state
+  search_capabilities    Marketplace discovery — search with filters (kind, trust, framework, personas)
+  get_capability         View full capability detail including persona block
+  install_capability     Install a capability into framework directories
+  list_installed         List all locally installed capabilities
+  verify_capability      Verify fingerprint and trust state
   cap_status             Check trust/install status of a capability
+
+Crawler management (registered from crawler_tools.py):
+  Resources: crawler://sources, crawler://status
+  Tools: crawler_source_enable, crawler_source_disable, crawler_doctor, crawler_cycle
 
 Crawler management (registered from crawler_tools.py):
   Resources: crawler://sources, crawler://status
@@ -77,7 +84,7 @@ _ERROR_INTERNAL = (-32603, "Internal error")
 
 MCP_SERVER_INFO = {
     "name": "capacium-mcp",
-    "version": "0.1.0",
+    "version": "0.2.0",
 }
 
 MCP_CAPABILITIES = {
@@ -329,8 +336,62 @@ def _read_resource(exchange: ExchangeClient, uri: str, params: Optional[Dict[str
 
 TOOL_SCHEMAS = [
     {
-        "name": "cap_install",
-        "description": "Install a capability into framework directories from the Exchange",
+        "name": "search_capabilities",
+        "description": "Search the Capacium marketplace for capabilities by query, kind, trust state, framework, or target personas.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Free-text search query (e.g. 'code review', 'pdf parser')",
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": ["skill", "mcp-server", "bundle", "tool", "prompt", "template", "workflow", "connector-pack", "resource"],
+                    "description": "Filter by capability kind",
+                },
+                "trust": {
+                    "type": "string",
+                    "enum": ["discovered", "pending_review", "verified", "signed", "deprecated"],
+                    "description": "Filter by minimum trust state",
+                },
+                "framework": {
+                    "type": "string",
+                    "description": "Filter by target framework (e.g. claude-desktop, opencode, cursor)",
+                },
+                "sort": {
+                    "type": "string",
+                    "enum": ["stars", "trust", "score", "updated"],
+                    "description": "Sort order for results",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default: 10)",
+                },
+            },
+        },
+    },
+    {
+        "name": "get_capability",
+        "description": "Get full detail for a capability including description, trust state, personas, value propositions, pricing, screenshots, and install command.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Capability owner (publisher or org)",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Capability name",
+                },
+            },
+            "required": ["owner", "name"],
+        },
+    },
+    {
+        "name": "install_capability",
+        "description": "Install a capability from the Exchange into framework directories. Downloads the package and creates symlinks.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -344,52 +405,134 @@ TOOL_SCHEMAS = [
                 },
                 "framework": {
                     "type": "string",
-                    "description": "Target framework: opencode, claude-code, gemini-cli, cursor, continue",
+                    "description": "Target framework: opencode, claude-desktop, claude-code, gemini-cli, cursor, continue",
                 },
             },
             "required": ["owner", "name"],
         },
     },
     {
-        "name": "cap_verify",
-        "description": "Verify a capability's SHA-256 fingerprint against the Exchange",
+        "name": "list_installed",
+        "description": "List all locally installed Capacium capabilities with their versions, trust states, and frameworks.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "verify_capability",
+        "description": "Verify a capability's SHA-256 fingerprint against the Exchange to detect tampering.",
         "inputSchema": {
             "type": "object",
             "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Capability owner",
+                },
                 "name": {
                     "type": "string",
                     "description": "Capability name to verify",
                 },
             },
-            "required": ["name"],
-        },
-    },
-    {
-        "name": "cap_status",
-        "description": "Check the install and trust status of a capability (installed, trust_state, fingerprint, path)",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Capability name to check",
-                },
-            },
-            "required": ["name"],
+            "required": ["owner", "name"],
         },
     },
 ]
 
 
 def _handle_tool(exchange: ExchangeClient, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    if name == "cap_install":
+    if name == "search_capabilities":
+        return _do_search_capabilities(exchange, arguments)
+    if name == "get_capability":
+        return _do_get_capability(exchange, arguments)
+    if name == "install_capability":
         return _do_install(exchange, arguments)
-    if name == "cap_verify":
+    if name == "list_installed":
+        return _do_list_installed(exchange, arguments)
+    if name == "verify_capability":
         return _do_verify(exchange, arguments)
-    if name == "cap_status":
-        return _do_status(exchange, arguments)
 
     return {"error": f"unknown tool: {name}"}
+
+
+def _do_search_capabilities(exchange: ExchangeClient, args: Dict[str, Any]) -> Dict[str, Any]:
+    query = args.get("query", "")
+    kind = args.get("kind")
+    trust = args.get("trust")
+    framework = args.get("framework")
+    sort = args.get("sort", "stars")
+    limit = args.get("limit", 10)
+
+    results = exchange.search(query or "", kind=kind, trust=trust, framework=framework, limit=limit)
+    formatted = [_format_result_marketplace(r) for r in results]
+    return {"results": formatted, "count": len(formatted), "query": query}
+
+
+def _do_get_capability(exchange: ExchangeClient, args: Dict[str, Any]) -> Dict[str, Any]:
+    owner = args.get("owner", "")
+    name = args.get("name", "")
+    if not owner or not name:
+        return {"error": "owner and name are required"}
+
+    cap = exchange.get_capability(owner, name)
+    if not cap:
+        return {"error": f"capability not found: {owner}/{name}"}
+
+    return _format_result_marketplace(cap)
+
+
+def _do_list_installed(exchange: ExchangeClient, args: Dict[str, Any]) -> Dict[str, Any]:
+    installed = []
+    if ACTIVE_DIR.exists():
+        for entry in sorted(ACTIVE_DIR.iterdir()):
+            if not entry.is_dir():
+                continue
+            meta_path = entry / ".cap-meta.json"
+            if not meta_path.exists():
+                continue
+            try:
+                meta = json.loads(meta_path.read_text())
+                installed.append({
+                    "owner": meta.get("owner", "?"),
+                    "name": meta.get("name", entry.name),
+                    "version": meta.get("version", "?"),
+                    "kind": meta.get("kind", "skill"),
+                    "fingerprint": meta.get("fingerprint", "")[:12],
+                    "installed_at": meta.get("installed_at", ""),
+                    "framework": meta.get("framework", ""),
+                })
+            except Exception:
+                installed.append({"name": entry.name, "error": "could not read metadata"})
+
+    return {"installed": installed, "count": len(installed)}
+
+
+def _format_result_marketplace(r: Dict[str, Any]) -> Dict[str, Any]:
+    """Rich marketplace detail format — includes personas, screenshots, pricing, value props."""
+    trust_state = r.get("trust_state", r.get("trust", "unknown"))
+    frameworks = r.get("frameworks", [])
+    return {
+        "canonical": f"{r.get('owner', r.get('publisher_id', '?'))}/{r.get('name', r.get('canonical_name', '?'))}",
+        "owner": r.get("owner", r.get("publisher_id", "?")),
+        "name": r.get("name", r.get("canonical_name", "?")),
+        "version": r.get("version", "0.1.0"),
+        "kind": r.get("kind", r.get("package_type", "skill")),
+        "description": r.get("description", r.get("short_description", "")),
+        "long_description": r.get("long_description", ""),
+        "fingerprint": r.get("fingerprint", "")[:12],
+        "trust_state": trust_state,
+        "quality_score": r.get("quality_score", 0),
+        "install_count": r.get("install_count", r.get("installs", 0)),
+        "frameworks": frameworks,
+        "target_personas": r.get("target_personas", []),
+        "value_propositions": r.get("value_propositions", []),
+        "screenshots": r.get("screenshots", []),
+        "pricing": r.get("pricing"),
+        "license": r.get("github_license", r.get("license", "")),
+        "tags": r.get("tags", []),
+        "repository": r.get("canonical_source_url", r.get("source_url", "")),
+        "install_command": f"cap install {r.get('owner', '?')}/{r.get('name', '?')}",
+    }
 
 
 def _do_install(exchange: ExchangeClient, args: Dict[str, Any]) -> Dict[str, Any]:
