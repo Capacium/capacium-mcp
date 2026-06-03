@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -391,7 +392,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "install_capability",
-        "description": "Install a capability from the Exchange into framework directories. Downloads the package and creates symlinks.",
+        "description": "Install a capability. Supports 3 modes: auto (detect local cap CLI), cli (force CLI install), exchange (download from Exchange with symlinks). Default: auto.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -406,6 +407,11 @@ TOOL_SCHEMAS = [
                 "framework": {
                     "type": "string",
                     "description": "Target framework: opencode, claude-desktop, claude-code, gemini-cli, cursor, continue",
+                },
+                "mode": {
+                    "type": "string",
+                    "description": "Install mode: auto (detect local cap), cli (force cli), exchange (force Exchange). Default: auto.",
+                    "enum": ["auto", "cli", "exchange"],
                 },
             },
             "required": ["owner", "name"],
@@ -460,7 +466,7 @@ def _do_search_capabilities(exchange: ExchangeClient, args: Dict[str, Any]) -> D
     kind = args.get("kind")
     trust = args.get("trust")
     framework = args.get("framework")
-    sort = args.get("sort", "stars")
+    _sort = args.get("sort", "stars")
     limit = args.get("limit", 10)
 
     results = exchange.search(query or "", kind=kind, trust=trust, framework=framework, limit=limit)
@@ -539,9 +545,30 @@ def _do_install(exchange: ExchangeClient, args: Dict[str, Any]) -> Dict[str, Any
     owner = args.get("owner", "")
     name = args.get("name", "")
     framework = args.get("framework") or "opencode"
+    mode = args.get("mode", "auto")
 
     if not owner or not name:
         return {"error": "owner and name are required"}
+
+    canonical = f"{owner}/{name}"
+
+    cap_bin = shutil.which("cap")
+    has_local_cap = cap_bin is not None
+
+    effective_mode = mode
+    if mode == "auto":
+        effective_mode = "cli" if has_local_cap else "exchange"
+
+    if effective_mode == "cli":
+        install_cmd = f"cap install {canonical}"
+        return {
+            "mode": "cli",
+            "detected": has_local_cap,
+            "canonical": canonical,
+            "instructions": f"Run the following command in your terminal:\n\n    {install_cmd}",
+            "command": install_cmd,
+            "note": "cap CLI detected. Install manually with the command above." if has_local_cap else "cap CLI not detected. Consider installing it first: pip install capacitium",
+        }
 
     cap_path = ACTIVE_DIR / name
     cap_path.mkdir(parents=True, exist_ok=True)
@@ -600,6 +627,7 @@ def _do_install(exchange: ExchangeClient, args: Dict[str, Any]) -> Dict[str, Any
             pass
 
     return {
+        "mode": "exchange",
         "installed": True,
         "owner": owner,
         "name": name,
