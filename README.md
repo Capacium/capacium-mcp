@@ -34,3 +34,9 @@ cap mcp start --transport sse --port 9999
 ```
 
 Agents connect via MCP protocol to browse, search, install, and verify capabilities.
+
+## Development
+
+Canonical repository: **self-hosted Forgejo** — `git.langevc.com/capacium/capacium-mcp`
+(`git clone git@git.langevc.com:capacium/capacium-mcp.git`). Develop against the Forgejo
+clone and open pull requests there. The GitHub copy is a read-only mirror.
