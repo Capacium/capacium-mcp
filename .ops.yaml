@@ -1,0 +1,58 @@
+# Layer-3 repository override (DST-002) for capacium-mcp: the release
+# destinations. The forge is a value, not a key name (DST-001). The release
+# workflow reads this file through config_loader.load_ops_yaml and resolves both
+# destinations from it; no destination, forge repository, host or credential
+# name is restated as a literal in .forgejo/.
+#
+# This repository runs no release path of its own, and this file adds none.
+# Measured on 2026-11-17: .forgejo/workflows/ holds mirror.yml only, which
+# syncs refs to the GitHub mirror and creates no release object; there is no
+# .github/workflows directory. The release path for this repository is the
+# ops-engine release workflow, and this file is its Layer-3 input.
+#
+# Visibilities are the MEASURED state of each forge on 2026-11-17, not an
+# inference from the Layer-2 mirror declaration in capacium-ops/config.yml:
+#   - canonical Forgejo capacium/capacium-mcp: PRIVATE.
+#     GET /api/v1/repos/capacium/capacium-mcp (authenticated) answers
+#     {"private": true, "internal": false}; an anonymous request answers 403.
+#   - GitHub mirror Capacium/capacium-mcp: PUBLIC.
+#     GET https://api.github.com/repos/Capacium/capacium-mcp answers
+#     {"private": false, "visibility": "public"}.
+#
+# credential_variable is measured on both runtimes in play. ops-engine 3.4.2,
+# the tier-2 pin in capacium-ops, has no such field: it is silently dropped and
+# adapters_for keys credentials by the forge value ("forgejo", "github").
+# ops-engine 3.6.2, the PRD baseline, resolves each destination by
+# credential_variable and falls back to the forge value, and its workflow
+# supplies the keys FORGEJO_TOKEN and GH_MIRROR_TOKEN. Declaring the names
+# therefore selects the same token on 3.6.2 and is inert on 3.4.2.
+destinations:
+  - forge: forgejo
+    repo: capacium/capacium-mcp
+    role: release
+    visibility: private
+    credential_variable: FORGEJO_TOKEN
+  - forge: github
+    repo: Capacium/capacium-mcp
+    role: release
+    visibility: public
+    credential_variable: GH_MIRROR_TOKEN
+
+# The organisation's canonical forge host (REL-023). The release gate reads it
+# from here and hands it to the destination/host boundary gate, so a hardcoded
+# canonical host in a workflow is refused. Keep the declaration on exactly one
+# line: the extractor reads a single `forge_hosts:` line.
+forge_hosts: [git.langevc.com]
+
+# Deliberately NOT declared here:
+#   - tracker_prefixes: the audience gate refuses nothing when the list is
+#     empty, which is the documented default. Measured on 2026-11-17, this
+#     repository's CHANGELOG.md carries no token of the gate's
+#     [A-Z]{2,5}-<number> shape, so there is no vocabulary to declare. The
+#     `P0-005` in the v0.3.0 section is not of that shape (one letter and a
+#     digit before the dash).
+#   - visibility_candidate_globs / visibility_exceptions: the Layer-2 entry in
+#     capacium-ops/config.yml owns them; a Layer-3 list would REPLACE that list
+#     on merge, and the globs must cover the mirror destination the gate judges.
+#   - release_body_install_block / release_body_assets_line: per-repository
+#     business data, never engine defaults.
